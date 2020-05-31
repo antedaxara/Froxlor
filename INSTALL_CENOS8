@@ -1,0 +1,21 @@
+firewall-cmd --zone=public --add-port=80/tcp --permanent
+firewall-cmd --zone=public --add-port=443/tcp --permanent
+firewall-cmd --reload
+dnf install httpd mariadb-server
+systemctl enable httpd.service
+systemctl enable mariadb.service
+systemctl start mariadb.service
+mysql_secure_installation
+sed -i 's/^/#/' /etc/httpd/conf.d/welcome.conf
+dnf install php php-simplexml php-mysqlnd php-mbstring php-process php-bcmath php-zip php-json
+setsebool -P httpd_can_network_connect 1
+systemctl start httpd.service
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+php composer-setup.php
+php -r "unlink('composer-setup.php');"
+mv composer.phar /bin/composer
+dnf -y install git
+cd /var/www/html/
+git clone https://github.com/Froxlor/Froxlor.git
+cd Froxlor
+composer install --no-dev
