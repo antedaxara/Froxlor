@@ -44,8 +44,6 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 	 */
 	private static $upddom_stmt = null;
 
-	private static $do_update = true;
-
 	public static $no_inserttask = false;
 
 	/**
@@ -61,8 +59,11 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 			// Let's Encrypt cronjob is combined with regeneration of webserver configuration files.
 			// For debugging purposes you can use the --debug switch and the --force switch to run the cron manually.
 			// check whether we MIGHT need to run although there is no task to regenerate config-files
-			$needRenew = self::issueDomains();
-			if ($needRenew || self::issueFroxlorVhost()) {
+			$issue_froxlor = self::issueFroxlorVhost();
+			$issue_domains = self::issueDomains();
+			$renew_froxlor = self::renewFroxlorVhost();
+			$renew_domains = self::renewDomains(true);
+			if ($issue_froxlor || !empty($issue_domains) || !empty($renew_froxlor) || $renew_domains) {
 				// insert task to generate certificates and vhost-configs
 				\Froxlor\System\Cronjob::inserttask(1);
 			}
@@ -76,6 +77,8 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 		if (! self::checkInstall()) {
 			return - 1;
 		}
+
+		self::checkUpgrade();
 
 		// flag for re-generation of vhost files
 		$changedetected = 0;
@@ -278,7 +281,7 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 				$cronlog->logAction(FroxlorLogger::CRON_ACTION, LOG_INFO, "Validating DNS of " . $domain);
 				// ips accordint to NS
 				$domain_ips = PhpHelper::gethostbynamel6($domain);
-				if (count(array_intersect($our_ips, $domain_ips)) <= 0) {
+				if ($domain_ips == false || count(array_intersect($our_ips, $domain_ips)) <= 0) {
 					// no common ips...
 					$cronlog->logAction(FroxlorLogger::CRON_ACTION, LOG_WARNING, "Skipping Let's Encrypt generation for " . $domain . " due to no system known IP address via DNS check");
 					unset($domains[$idx]);
@@ -291,12 +294,7 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 	{
 		if (! empty($domains)) {
 
-			if (self::$do_update) {
-				self::checkUpgrade();
-				self::$do_update = false;
-			}
-
-			$acmesh_cmd = self::$acmesh . " --auto-upgrade 0 --server " . self::$apiserver . " --issue -d " . implode(" -d ", $domains);
+			$acmesh_cmd = self::$acmesh . " --server " . self::$apiserver . " --issue -d " . implode(" -d ", $domains);
 			// challenge path
 			$acmesh_cmd .= " -w " . Settings::Get('system.letsencryptchallengepath');
 			if (Settings::Get('system.leecc') > 0) {
@@ -401,8 +399,8 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 			");
 			$froxlor_ssl = Database::pexecute_first($froxlor_ssl_settings_stmt);
 			// also check for possible existing certificate
-			if ($froxlor_ssl || (! $froxlor_ssl && ! self::checkFsFilesAreNewer(Settings::Get('system.hostname'), date('Y-m-d H:i:s', 0)))) {
-				return ($froxlor_ssl ? $froxlor_ssl : true);
+			if ($froxlor_ssl && self::checkFsFilesAreNewer(Settings::Get('system.hostname'), $froxlor_ssl['expirationdate'])) {
+				return $froxlor_ssl;
 			}
 		}
 		return false;
@@ -411,7 +409,7 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 	/**
 	 * get a list of domains that have a lets encrypt certificate (possible renew)
 	 */
-	private static function renewDomains()
+	private static function renewDomains($check = false)
 	{
 		$certificates_stmt = Database::query("
 			SELECT
@@ -439,6 +437,14 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 		");
 		$renew_certs = $certificates_stmt->fetchAll(\PDO::FETCH_ASSOC);
 		if ($renew_certs) {
+			if ($check) {
+				foreach ($renew_certs as $cert) {
+					if (self::checkFsFilesAreNewer($cert['domain'], $cert['expirationdate'])) {
+						return true;
+					}
+				}
+				return false;
+			}
 			return $renew_certs;
 		}
 		return array();
@@ -496,24 +502,24 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 
 		if (is_dir($certificate_folder) && file_exists($ssl_file) && is_readable($ssl_file)) {
 			$cert_data = openssl_x509_parse(file_get_contents($ssl_file));
-			if (strtotime($cert_data['validTo_time_t']) > strtotime($cert_date)) {
+			if ($cert_data && $cert_data['validTo_time_t'] > strtotime($cert_date)) {
 				return true;
 			}
 		}
 		return false;
 	}
 
-	public static function getWorkingDirFromEnv($domain = "")
+	public static function getWorkingDirFromEnv($domain = "", $forced_noecc = false)
 	{
-		if (Settings::Get('system.leecc') > 0) {
+		if (Settings::Get('system.leecc') > 0 && ! $forced_noecc) {
 			$domain .= "_ecc";
 		}
 		$env_file = FileDir::makeCorrectFile(dirname(self::$acmesh) . '/acme.sh.env');
 		if (file_exists($env_file)) {
 			$output = [];
 			$cut = <<<EOC
-			cut -d'"' -f2
-			EOC;
+cut -d'"' -f2
+EOC;
 			exec('grep "LE_WORKING_DIR" ' . escapeshellarg($env_file) . ' | ' . $cut, $output);
 			if (is_array($output) && ! empty($output) && isset($output[0]) && ! empty($output[0])) {
 				return FileDir::makeCorrectDir($output[0] . "/" . $domain);
@@ -539,8 +545,7 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 		$certificate_folder = self::getWorkingDirFromEnv($domain);
 		$certificate_folder_noecc = null;
 		if (Settings::Get('system.leecc') > 0) {
-			$certificate_folder_noecc = \Froxlor\FileDir::makeCorrectDir($certificate_folder);
-			$certificate_folder .= "_ecc";
+			$certificate_folder_noecc = self::getWorkingDirFromEnv($domain, true);
 		}
 		$certificate_folder = \Froxlor\FileDir::makeCorrectDir($certificate_folder);
 
@@ -599,7 +604,7 @@ class AcmeSh extends \Froxlor\Cron\FroxlorCron
 	 */
 	private static function checkUpgrade()
 	{
-		$acmesh_result = \Froxlor\FileDir::safe_exec(self::$acmesh . " --upgrade");
+		$acmesh_result = \Froxlor\FileDir::safe_exec(self::$acmesh . " --upgrade --auto-upgrade 0");
 		// check for activated cron
 		$acmesh_result2 = \Froxlor\FileDir::safe_exec(self::$acmesh . " --install-cronjob");
 		FroxlorLogger::getInstanceOf()->logAction(FroxlorLogger::CRON_ACTION, LOG_INFO, "Checking for LetsEncrypt client upgrades before renewing certificates:\n" . implode("\n", $acmesh_result) . "\n" . implode("\n", $acmesh_result2));

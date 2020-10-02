@@ -639,3 +639,41 @@ if (\Froxlor\Froxlor::isFroxlorVersion('0.10.16')) {
 	showUpdateStep("Updating from 0.10.16 to 0.10.17", false);
 	\Froxlor\Froxlor::updateToVersion('0.10.17');
 }
+
+if (\Froxlor\Froxlor::isFroxlorVersion('0.10.17')) {
+	showUpdateStep("Updating from 0.10.17 to 0.10.18", false);
+	\Froxlor\Froxlor::updateToVersion('0.10.18');
+}
+
+if (\Froxlor\Froxlor::isFroxlorVersion('0.10.18')) {
+	showUpdateStep("Updating from 0.10.18 to 0.10.19", false);
+	\Froxlor\Froxlor::updateToVersion('0.10.19');
+}
+
+if (\Froxlor\Froxlor::isDatabaseVersion('202005150')) {
+
+	showUpdateStep("Add new performance indexes", true);
+	Database::query("ALTER TABLE panel_customers ADD INDEX guid (guid);");
+	Database::query("ALTER TABLE panel_tasks ADD INDEX type (type);");
+	Database::query("ALTER TABLE mail_users ADD INDEX username (username);");
+	Database::query("ALTER TABLE mail_users ADD INDEX imap (imap);");
+	Database::query("ALTER TABLE mail_users ADD INDEX pop3 (pop3);");
+	Database::query("ALTER TABLE ftp_groups ADD INDEX gid (gid);");
+	lastStepStatus(0);
+
+	\Froxlor\Froxlor::updateToDbVersion('202007240');
+}
+
+if (\Froxlor\Froxlor::isFroxlorVersion('0.10.19')) {
+	showUpdateStep("Updating from 0.10.19 to 0.10.20", false);
+	\Froxlor\Froxlor::updateToVersion('0.10.20');
+}
+
+if (\Froxlor\Froxlor::isDatabaseVersion('202007240')) {
+
+	showUpdateStep("Removing old unused table", true);
+	Database::query("DROP TABLE IF EXISTS `panel_diskspace_admins`;");
+	lastStepStatus(0);
+
+	\Froxlor\Froxlor::updateToDbVersion('202009070');
+}

@@ -36,7 +36,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 	 * @param string $url
 	 *        	optional, overwrites path value with an URL to generate a redirect, alternatively use the path parameter also for URLs
 	 * @param int $openbasedir_path
-	 *        	optional, either 0 for customers-homedir or 1 for domains-docroot
+	 *        	optional, either 0 for domains-docroot or 1 for customers-homedir
 	 * @param int $phpsettingid
 	 *        	optional, php-settings-id, if empty the $domain value is used
 	 * @param int $redirectcode
@@ -345,7 +345,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 			$result = $this->apiCall('SubDomains.get', array(
 				'id' => $subdomain_id
 			));
-			return $this->response(200, "successfull", $result);
+			return $this->response(200, "successful", $result);
 		}
 		throw new \Exception("No more resources available", 406);
 	}
@@ -426,7 +426,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 		$result = Database::pexecute_first($result_stmt, $params, true, true);
 		if ($result) {
 			$this->logger()->logAction($this->isAdmin() ? \Froxlor\FroxlorLogger::ADM_ACTION : \Froxlor\FroxlorLogger::USR_ACTION, LOG_NOTICE, "[API] get subdomain '" . $result['domain'] . "'");
-			return $this->response(200, "successfull", $result);
+			return $this->response(200, "successful", $result);
 		}
 		$key = ($id > 0 ? "id #" . $id : "domainname '" . $domainname . "'");
 		throw new \Exception("Subdomain with " . $key . " could not be found", 404);
@@ -450,7 +450,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 	 * @param bool $isemaildomain
 	 *        	optional
 	 * @param int $openbasedir_path
-	 *        	optional, either 0 for customers-homedir or 1 for domains-docroot
+	 *        	optional, either 0 for domains-docroot or 1 for customers-homedir
 	 * @param int $phpsettingid
 	 *        	optional, php-settings-id, if empty the $domain value is used
 	 * @param int $redirectcode
@@ -683,6 +683,8 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 				Database::pexecute($del_stmt, array(
 					'id' => $id
 				), true, true);
+				// remove domain from acme.sh / lets encrypt if used
+				\Froxlor\System\Cronjob::inserttask('12', $result['domain']);
 			}
 
 			\Froxlor\System\Cronjob::inserttask('1');
@@ -693,7 +695,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 		$result = $this->apiCall('SubDomains.get', array(
 			'id' => $id
 		));
-		return $this->response(200, "successfull", $result);
+		return $this->response(200, "successful", $result);
 	}
 
 	/**
@@ -797,7 +799,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 		while ($row = $domains_stmt->fetch(\PDO::FETCH_ASSOC)) {
 			$result[] = $row;
 		}
-		return $this->response(200, "successfull", array(
+		return $this->response(200, "successful", array(
 			'count' => count($result),
 			'list' => $result
 		));
@@ -862,7 +864,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 		");
 		$result = Database::pexecute_first($domains_stmt, null, true, true);
 		if ($result) {
-			return $this->response(200, "successfull", $result['num_subdom']);
+			return $this->response(200, "successful", $result['num_subdom']);
 		}
 	}
 
@@ -873,7 +875,9 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 	 *        	optional, the domain-id
 	 * @param string $domainname
 	 *        	optional, the domainname
-	 *        	
+	 * @param int $customerid
+	 *        	required when called as admin, not needed when called as customer
+	 *
 	 * @access admin, customer
 	 * @throws \Exception
 	 * @return string json-encoded array
@@ -976,7 +980,7 @@ class SubDomains extends \Froxlor\Api\ApiCommand implements \Froxlor\Api\Resourc
 		Customers::decreaseUsage($customer['customerid'], 'subdomains_used');
 
 		$this->logger()->logAction($this->isAdmin() ? \Froxlor\FroxlorLogger::ADM_ACTION : \Froxlor\FroxlorLogger::USR_ACTION, LOG_WARNING, "[API] deleted subdomain '" . $result['domain'] . "'");
-		return $this->response(200, "successfull", $result);
+		return $this->response(200, "successful", $result);
 	}
 
 	/**
